@@ -15,6 +15,7 @@
 # specific language governing permissions and limitations
 # under the License.
 """Utility for ROCm backend"""
+import os
 import subprocess
 from os.path import join, exists
 
@@ -133,10 +134,13 @@ def callback_rocm_bitcode_path(rocdl_dir=None):
     # seems link order matters.
 
     if rocdl_dir is None:
-        if exists("/opt/rocm/amdgcn/bitcode/"):
-            rocdl_dir = "/opt/rocm/amdgcn/bitcode/"  # starting with rocm 3.9
+        rocm_path = os.environ.get("ROCM_PATH", "/opt/rocm")
+        if exists(join(rocm_path, "amdgcn/bitcode/")):
+            rocdl_dir = join(rocm_path, "amdgcn/bitcode/")
+        elif exists("/opt/rocm/amdgcn/bitcode/"):
+            rocdl_dir = "/opt/rocm/amdgcn/bitcode/"
         else:
-            rocdl_dir = "/opt/rocm/lib/"  # until rocm 3.8
+            rocdl_dir = "/opt/rocm/lib/"
 
     bitcode_names = [
         "oclc_daz_opt_on",
