@@ -24,6 +24,7 @@
 #ifdef TVM_LLVM_VERSION
 
 #include <llvm/ADT/SmallString.h>
+#include <llvm/Bitcode/BitcodeWriter.h>
 #include <llvm/IR/Attributes.h>
 #include <llvm/IR/CallingConv.h>
 #include <llvm/IR/Function.h>
@@ -282,12 +283,19 @@ runtime::Module BuildAMDGPU(IRModule mod, Target target) {
   }
 
   std::unique_ptr<llvm::Module> module = cg->Finish();
-  llvm::SmallString<8> dataObj, data_ll, dataAsm;
-  llvm::raw_svector_ostream destObj(dataObj), dest_ll(data_ll), destAsm(dataAsm);
+  llvm::SmallString<8> dataObj, data_ll, dataAsm, data_bc;
+  llvm::raw_svector_ostream destObj(dataObj), dest_ll(data_ll), destAsm(dataAsm),
+      dest_bc(data_bc);
   destObj.SetUnbuffered();
   dest_ll.SetUnbuffered();
   destAsm.SetUnbuffered();
+  dest_bc.SetUnbuffered();
   module->print(dest_ll, nullptr);
+  // Also serialize as LLVM bitcode. Bitcode round-trips losslessly through
+  // LLVM's read/write APIs, unlike textual IR (which can lose validity for
+  // constructs like uninitialized globals — see GitHub history for context).
+  // Stored on the ROCMModule, retrievable from Python via get_source("bc").
+  llvm::WriteBitcodeToFile(*module, dest_bc);
 #if TVM_LLVM_VERSION <= 60
   std::unique_ptr<llvm::Module> mAsm = llvm::CloneModule(module.get());
   std::unique_ptr<llvm::Module> mObj = llvm::CloneModule(module.get());
@@ -334,7 +342,8 @@ runtime::Module BuildAMDGPU(IRModule mod, Target target) {
 
   std::string hsaco = (*f)(arr);
   std::string ll(data_ll.begin(), data_ll.end());
-  return ROCMModuleCreate(hsaco, "hsaco", ExtractFuncInfo(mod), ll, assembly);
+  std::string bc(data_bc.begin(), data_bc.end());
+  return ROCMModuleCreate(hsaco, "hsaco", ExtractFuncInfo(mod), ll, assembly, bc);
 }
 
 TVM_REGISTER_GLOBAL("target.build.rocm").set_body_typed(BuildAMDGPU);

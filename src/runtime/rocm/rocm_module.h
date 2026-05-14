@@ -46,10 +46,15 @@ static constexpr const int kMaxNumGPUs = 32;
  * \param fmt The format of the data, can be "hsaco"
  * \param fmap The map function information map of each function.
  * \param rocm_source Optional, rocm source file
+ * \param assembly Optional, AMDGCN assembly text
+ * \param bitcode Optional, LLVM bitcode bytes for the kernels (lossless
+ *   serialization of the IR — round-trip-safe for external-tool re-compilation,
+ *   unlike textual `.ll` which can lose validity when TVM's IR Builder emits
+ *   constructs the text writer can't round-trip). Exposed via GetSource("bc").
  */
 Module ROCMModuleCreate(std::string data, std::string fmt,
                         std::unordered_map<std::string, FunctionInfo> fmap, std::string rocm_source,
-                        std::string assembly);
+                        std::string assembly, std::string bitcode = std::string());
 }  // namespace runtime
 }  // namespace tvm
 #endif  // TVM_RUNTIME_ROCM_ROCM_MODULE_H_

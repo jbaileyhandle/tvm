@@ -48,8 +48,10 @@ class ROCMModuleNode : public runtime::ModuleNode {
  public:
   explicit ROCMModuleNode(std::string data, std::string fmt,
                           std::unordered_map<std::string, FunctionInfo> fmap,
-                          std::string hip_source, std::string assembly)
-      : data_(data), fmt_(fmt), fmap_(fmap), hip_source_(hip_source), assembly_(assembly) {
+                          std::string hip_source, std::string assembly,
+                          std::string bitcode = std::string())
+      : data_(data), fmt_(fmt), fmap_(fmap), hip_source_(hip_source), assembly_(assembly),
+        bitcode_(bitcode) {
     std::fill(module_.begin(), module_.end(), nullptr);
   }
   // destructor
@@ -91,8 +93,15 @@ class ROCMModuleNode : public runtime::ModuleNode {
     if (format == "asm") {
       return assembly_;
     }
+    if (format == "bc" || format == "bitcode") {
+      return bitcode_;
+    }
     return "";
   }
+
+  // Accessor for the kernel LLVM bitcode (may be empty if not provided).
+  // The reference is to bitcode_ which lives as long as this module.
+  const std::string& bitcode() const { return bitcode_; }
 
   // get a CUfunction from primary context in device_id
   hipFunction_t GetFunc(int device_id, const std::string& func_name) {
@@ -136,6 +145,10 @@ class ROCMModuleNode : public runtime::ModuleNode {
   std::string hip_source_;
   // The gcn asm.
   std::string assembly_;
+  // LLVM bitcode for the kernels (optional). Empty if not provided by codegen.
+  // Provides a lossless round-trip-safe IR serialization for external-tool
+  // recompilation, distinct from hip_source_ which is the textual `.ll`.
+  std::string bitcode_;
   // the internal modules per GPU, to be lazily initialized.
   std::array<hipModule_t, kMaxNumGPUs> module_;
   // internal mutex when updating the module
@@ -202,8 +215,8 @@ PackedFunc ROCMModuleNode::GetFunction(const std::string& name,
 
 Module ROCMModuleCreate(std::string data, std::string fmt,
                         std::unordered_map<std::string, FunctionInfo> fmap, std::string hip_source,
-                        std::string assembly) {
-  auto n = make_object<ROCMModuleNode>(data, fmt, fmap, hip_source, assembly);
+                        std::string assembly, std::string bitcode) {
+  auto n = make_object<ROCMModuleNode>(data, fmt, fmap, hip_source, assembly, bitcode);
   return Module(n);
 }
 
@@ -235,5 +248,21 @@ TVM_REGISTER_GLOBAL("runtime.module.loadbinary_hip").set_body_typed(ROCMModuleLo
 TVM_REGISTER_GLOBAL("runtime.module.loadfile_hsaco").set_body_typed(ROCMModuleLoadFile);
 
 TVM_REGISTER_GLOBAL("runtime.module.loadfile_hip").set_body_typed(ROCMModuleLoadFile);
+
+// Return the kernel LLVM bitcode for a ROCm Module as a byte array.
+// GetSource("bc") would technically work too, but TVM's FFI auto-converts
+// std::string return values to Python str via UTF-8 decode, which fails on
+// bitcode's non-UTF-8 bytes. TVMByteArray bypasses that and is delivered
+// to Python as a bytes object.
+TVM_REGISTER_GLOBAL("runtime.module.rocm_get_bitcode")
+    .set_body([](TVMArgs args, TVMRetValue* rv) {
+      Module mod = args[0];
+      auto* node = static_cast<ROCMModuleNode*>(mod.operator->());
+      const std::string& bc = node->bitcode();
+      TVMByteArray arr;
+      arr.data = bc.data();
+      arr.size = bc.size();
+      *rv = arr;
+    });
 }  // namespace runtime
 }  // namespace tvm

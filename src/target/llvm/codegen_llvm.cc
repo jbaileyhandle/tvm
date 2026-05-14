@@ -645,8 +645,15 @@ llvm::GlobalVariable* CodeGenLLVM::AllocateSharedMemory(DataType dtype, size_t s
                                                         int alignment,
                                                         llvm::GlobalValue::LinkageTypes linkage) {
   llvm::Type* type = llvm::ArrayType::get(DTypeToLLVMType(dtype), size);
+  // Use UndefValue (rather than nullptr) as the initializer so the resulting
+  // textual IR is valid for round-trip through `clang -x ir`. With nullptr,
+  // LLVM's text writer omits the initializer entirely, producing `global TYPE,`
+  // which the text parser rejects for non-external linkages. The semantics
+  // for LDS (shared memory) are unchanged — it's allocated by the hardware
+  // per workgroup, the initial contents are undefined either way.
   llvm::GlobalVariable* global =
-      new llvm::GlobalVariable(*module_, type, false, linkage, nullptr, "shmem", nullptr,
+      new llvm::GlobalVariable(*module_, type, false, linkage, llvm::UndefValue::get(type),
+                               "shmem", nullptr,
                                llvm::GlobalValue::NotThreadLocal, shared_address_space);
 #if TVM_LLVM_VERSION >= 100
   global->setAlignment(llvm::Align(alignment));
